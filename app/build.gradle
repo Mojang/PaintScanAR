@@ -1,0 +1,64 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 28
+    defaultConfig {
+        applicationId "com.mojang.paintscan"
+
+        // Sceneform requires minSdkVersion >= 24.
+        minSdkVersion 24
+        targetSdkVersion 28
+        versionCode 1
+        versionName "1.0"
+    }
+    // Sceneform libraries use language constructs from Java 8.
+    // Add these compile options if targeting minSdkVersion < 26.
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    implementation 'com.android.support:appcompat-v7:28.0.0'
+    implementation 'com.android.support:design:28.0.0'
+
+    // Use the Sceneform UX Package pre-built from Maven.
+    implementation "com.google.ar.sceneform.ux:sceneform-ux:1.14.0"
+    implementation project(path: ':openCVLibrary343')
+
+    // Use the Sceneform UX Package built from the source files included in the sceneformux folder.
+    //api project(":sceneformux")
+}
+
+apply plugin: 'com.google.ar.sceneform.plugin'
+
+sceneform.asset('sampledata/models/frame_lower_left.obj',
+        'default',
+        'sampledata/models/frame_lower_left.sfa',
+        'src/main/assets/models/frame_lower_left')
+
+sceneform.asset('sampledata/models/frame_lower_right.obj',
+        'default',
+        'sampledata/models/frame_lower_right.sfa',
+        'src/main/assets/models/frame_lower_right')
+
+sceneform.asset('sampledata/models/frame_upper_left.obj',
+        'default',
+        'sampledata/models/frame_upper_left.sfa',
+        'src/main/assets/models/frame_upper_left')
+
+sceneform.asset('sampledata/models/frame_upper_right.obj',
+        'default',
+        'sampledata/models/frame_upper_right.sfa',
+        'src/main/assets/models/frame_upper_right')
