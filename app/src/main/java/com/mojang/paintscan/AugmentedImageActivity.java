@@ -43,11 +43,20 @@ import com.google.ar.sceneform.ux.TransformableNode;
 
 import org.opencv.android.OpenCVLoader;
 import org.opencv.android.Utils;
+import org.opencv.calib3d.Calib3d;
 import org.opencv.core.CvType;
+import org.opencv.core.DMatch;
+import org.opencv.core.KeyPoint;
 import org.opencv.core.Mat;
+import org.opencv.core.MatOfDMatch;
+import org.opencv.core.MatOfKeyPoint;
+import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
 import org.opencv.core.Size;
+import org.opencv.features2d.DescriptorMatcher;
+import org.opencv.features2d.Feature2D;
+import org.opencv.features2d.ORB;
 import org.opencv.imgproc.Imgproc;
 import org.opencv.utils.Converters;
 
@@ -59,10 +68,20 @@ import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import static org.opencv.calib3d.Calib3d.RANSAC;
+import static org.opencv.calib3d.Calib3d.findHomography;
+import static org.opencv.features2d.DescriptorMatcher.BRUTEFORCE_HAMMING;
+import static org.opencv.features2d.Features2d.drawMatches;
+import static org.opencv.imgcodecs.Imgcodecs.imread;
+import static org.opencv.imgcodecs.Imgcodecs.imwrite;
+import static org.opencv.imgproc.Imgproc.warpPerspective;
 
 /**
  * This application demonstrates using augmented images to place anchor nodes. app to include image
@@ -123,13 +142,102 @@ public class AugmentedImageActivity extends AppCompatActivity {
     fab.setOnClickListener(new View.OnClickListener() {
       @Override
       public void onClick(View view) {
-        captureFrameImage(mFrame);
+        //captureFrameImage(mFrame);
+        alignImages();
       }
     });
     fab.setEnabled(false);
   }
 
+  static  int MAX_FEATURES = 500;
+
+  class SortByDistance implements Comparator<DMatch> {
+    public int compare(DMatch a, DMatch b) {
+      return (int)a.distance - (int)b.distance;
+    }
+  }
+
+//  private void alignImages(Bitmap cameraBitmap, Bitmap templateBitmap, Bitmap alignedImage) {
+  private void alignImages() {
+
+
+    String inFileName = Environment.getExternalStorageDirectory() + "/saved_images/input.jpg";
+    String templateFileName = Environment.getExternalStorageDirectory() + "/saved_images/template.jpg";
+    String outFileName = Environment.getExternalStorageDirectory() + "/saved_images/output.jpg";
+    String matchesFileName = Environment.getExternalStorageDirectory() + "/saved_images/matches.jpg";
+
+    Mat im1 = imread(inFileName);
+    Mat im2 = imread(templateFileName);
+    //Mat outFile = imread(outFileName);
+
+    //Mat im1 = new Mat();
+    //Mat im2 = new Mat();
+    //Utils.bitmapToMat(cameraBitmap, im1);
+    //Utils.bitmapToMat(templateBitmap, im2);
+
+    // Convert images to grayscale
+    Mat im1Gray = new Mat();
+    Mat im2Gray = new Mat();
+    Imgproc.cvtColor(im1, im1Gray, Imgproc.COLOR_BGR2GRAY);
+    Imgproc.cvtColor(im2, im2Gray, Imgproc.COLOR_BGR2GRAY);
+
+    // Variables to store keypoints and descriptors
+    MatOfKeyPoint keypoints1 = new MatOfKeyPoint();
+    MatOfKeyPoint keypoints2 = new MatOfKeyPoint();
+    Mat descriptors1 = new Mat();
+    Mat descriptors2 = new Mat();
+
+    // Detect ORB features and compute descriptors.
+    Feature2D orb = ORB.create(MAX_FEATURES);
+    orb.detectAndCompute(im1Gray, new Mat(), keypoints1, descriptors1);
+    orb.detectAndCompute(im2Gray, new Mat(), keypoints2, descriptors2);
+
+    // Match features.
+    MatOfDMatch matches = new MatOfDMatch();
+    DescriptorMatcher matcher = DescriptorMatcher.create(BRUTEFORCE_HAMMING);
+    matcher.match(descriptors1, descriptors2, matches);
+
+    // Sort matches by score
+    List<DMatch> matchesList = matches.toList();
+    matchesList.sort(new SortByDistance());
+
+    // Draw top matches
+    Mat imMatches = new Mat();
+    drawMatches(im1, keypoints1, im2, keypoints2, matches, imMatches);
+    imwrite(matchesFileName, imMatches);
+
+    // Extract location of good matches
+    List<Point> points1List = new ArrayList<Point>();
+    List<Point> points2List = new ArrayList<Point>();
+    List<KeyPoint> keyPoints1List = keypoints1.toList();
+    List<KeyPoint> keyPoints2List = keypoints2.toList();
+
+    for( int i = 0; i < matchesList.size(); i++ ) {
+      points1List.add(keyPoints1List.get(matchesList.get(i).queryIdx).pt);
+      points2List.add(keyPoints2List.get(matchesList.get(i).trainIdx).pt);
+    }
+
+    // Find homography
+    MatOfPoint2f points1 = new MatOfPoint2f();
+    MatOfPoint2f points2 = new MatOfPoint2f();
+
+    points1.fromList(points1List);
+    points2.fromList(points2List);
+
+    Mat homography = Calib3d.findHomography(points1, points2, RANSAC);
+
+    // Use homography to warp image
+    Mat imResult = new Mat();
+    warpPerspective(im1, imResult, homography, im2.size());
+    imwrite(outFileName, imResult);
+    //Utils.matToBitmap(imResult, alignedImage);
+
+  }
+
   private void captureFrameImage(Frame mFrame) {
+
+
+
 
     if (mFrame == null) {
       Log.e(LOG_TAG, "CaptureFrameImage called with null mFrame");
@@ -159,19 +267,29 @@ public class AugmentedImageActivity extends AppCompatActivity {
     dstPoints.add(new Point(256, 256));
     dstPoints.add(new Point(0, 256));
 
-    Mat srcMat = Converters.vector_Point2f_to_Mat(srcPts);
-    Mat dstMat = Converters.vector_Point2f_to_Mat(dstPoints);
-    Mat perspectiveTransform = Imgproc.getPerspectiveTransform(srcMat, dstMat);
+    MatOfPoint2f srcMat = new MatOfPoint2f();
+    MatOfPoint2f dstMat = new MatOfPoint2f();
+    srcMat.fromList(srcPts);
+    dstMat.fromList(dstPoints);
+    Mat homography = Calib3d.findHomography(srcMat, dstMat, RANSAC);
 
     //getting the input matrix from the given bitmap
-    Mat inputMat = new Mat(cameraBitmap.getHeight(), cameraBitmap.getWidth(), CvType.CV_32F );
+    Mat inputMat = new Mat();
     Utils.bitmapToMat(cameraBitmap, inputMat);
 
     //getting the output matrix with the previously determined sizes
-    Mat outputMat = new Mat(256, 256, CvType.CV_32F);
+    Mat outputMat = new Mat();
 
     //applying the transformation
-    Imgproc.warpPerspective(inputMat, outputMat, perspectiveTransform, new Size(256, 256));
+   // warpPerspective(inputMat, outputMat, homography, im2.size());
+
+    String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+    String inputFileName = Environment.getExternalStorageDirectory() + "/saved_images/input_" + timeStamp + ".jpeg";
+    String resultFileName = Environment.getExternalStorageDirectory() + "/saved_images/result_" + timeStamp + ".jpeg";
+
+    imwrite(inputFileName, inputMat);
+    imwrite(resultFileName, outputMat);
+
     //creating the output bitmap
     Bitmap outputBitmap = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888);
     Utils.matToBitmap(outputMat, outputBitmap);
