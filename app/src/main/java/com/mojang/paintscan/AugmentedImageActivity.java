@@ -29,6 +29,7 @@ import com.google.ar.core.Plane;
 import com.google.ar.core.Pose;
 import com.google.ar.core.exceptions.NotYetAvailableException;
 import com.google.ar.sceneform.AnchorNode;
+import com.google.ar.sceneform.ArSceneView;
 import com.google.ar.sceneform.FrameTime;
 import com.google.ar.sceneform.Node;
 import com.google.ar.sceneform.math.Matrix;
@@ -47,10 +48,12 @@ import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
+import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 import org.opencv.utils.Converters;
 
+import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -136,21 +139,40 @@ public class AugmentedImageActivity extends AppCompatActivity {
       return;
     }
 
-    Bitmap cameraBitmap = getFrameBitmap(mFrame);
+    ArSceneView sceneView = mARFragment.getArSceneView();
 
-    com.google.ar.sceneform.Camera camera = mARFragment.getArSceneView().getScene().getCamera();
+    Image cameraImage = getARCoreImage(mFrame);
+    byte[] cameraJpeg = extractImageDataFromARCore(cameraImage);
+    String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+    String cameraFileName = "aOriginal_" + timeStamp + ".jpeg";
+    saveImage(cameraJpeg, cameraFileName);
 
+    com.google.ar.sceneform.Camera camera = sceneView.getScene().getCamera();
     Vector3 upperLeft = camera.worldToScreenPoint(mReferenceNodes[1].getWorldPosition());
     Vector3 upperRight = camera.worldToScreenPoint(mReferenceNodes[2].getWorldPosition());
     Vector3 lowerRight = camera.worldToScreenPoint(mReferenceNodes[3].getWorldPosition());
     Vector3 lowerLeft = camera.worldToScreenPoint(mReferenceNodes[4].getWorldPosition());
 
-    // top-left, top-right, bottom-right, bottom-left
+    final int sceneWidth = sceneView.getWidth();
+    final int sceneHeight = sceneView.getHeight();
+
+    final int cameraImageWidth = cameraImage.getWidth();
+    final int cameraImageHeight = cameraImage.getHeight();
+
     List<Point> srcPts = new ArrayList<Point>();
-    srcPts.add(new Point(upperLeft.x, upperLeft.y));
-    srcPts.add(new Point(upperRight.x, upperRight.y));
-    srcPts.add(new Point(lowerRight.x, lowerRight.y));
-    srcPts.add(new Point(lowerLeft.x, lowerLeft.y));
+    srcPts.add(new Point((upperLeft.y / sceneHeight) * cameraImageWidth, (1.0 - (upperLeft.x / sceneWidth)) * cameraImageHeight));
+    srcPts.add(new Point((upperRight.y / sceneHeight) * cameraImageWidth, (1.0 - (upperRight.x / sceneWidth)) * cameraImageHeight));
+    srcPts.add(new Point((lowerRight.y / sceneHeight) * cameraImageWidth, (1.0 - (lowerRight.x / sceneWidth)) * cameraImageHeight));
+    srcPts.add(new Point((lowerLeft.y / sceneHeight) * cameraImageWidth, (1.0 - (lowerLeft.x / sceneWidth)) * cameraImageHeight));
+
+//    srcPts.add(new Point((upperLeft.x / sceneWidth) * cameraImageHeight, (upperLeft.y / sceneHeight) * cameraImageWidth));
+//    srcPts.add(new Point((upperRight.x / sceneWidth) * cameraImageHeight, (upperRight.y / sceneHeight) * cameraImageWidth));
+//    srcPts.add(new Point((lowerRight.x / sceneWidth) * cameraImageHeight, (lowerRight.y / sceneHeight) * cameraImageWidth));
+//    srcPts.add(new Point((lowerLeft.x / sceneWidth) * cameraImageHeight, (lowerLeft.y / sceneHeight) * cameraImageWidth));
+//    srcPts.add(new Point((upperLeft.y / sceneHeight) * cameraImageHeight, (upperLeft.x / sceneWidth) * cameraImageWidth));
+//    srcPts.add(new Point((upperRight.y / sceneHeight) * cameraImageHeight, (upperRight.x / sceneWidth) * cameraImageWidth));
+//    srcPts.add(new Point((lowerRight.y / sceneHeight) * cameraImageHeight, (lowerRight.x / sceneWidth) * cameraImageWidth));
+//    srcPts.add(new Point( (lowerLeft.y / sceneHeight) * cameraImageHeight, (lowerLeft.x / sceneWidth) * cameraImageWidth));
 
     // top-left, top-right, bottom-right, bottom-left
     List<Point> dstPoints = new ArrayList<Point>();
@@ -164,22 +186,40 @@ public class AugmentedImageActivity extends AppCompatActivity {
     Mat perspectiveTransform = Imgproc.getPerspectiveTransform(srcMat, dstMat);
 
     //getting the input matrix from the given bitmap
-    Mat inputMat = new Mat(cameraBitmap.getHeight(), cameraBitmap.getWidth(), CvType.CV_32F );
+    Bitmap cameraBitmap = BitmapFactory.decodeByteArray(cameraJpeg, 0, cameraJpeg.length);
+    Mat inputMat = new Mat(cameraBitmap.getWidth(), cameraBitmap.getHeight(), CvType.CV_32S );
     Utils.bitmapToMat(cameraBitmap, inputMat);
 
+    // MARK
+    // A
+    Imgproc.circle(inputMat, srcPts.get(0), 10, new Scalar(255, 0, 0), 5);
+    Imgproc.circle(inputMat, srcPts.get(1), 10, new Scalar(0, 255, 0), 5);
+    Imgproc.circle(inputMat, srcPts.get(2), 10, new Scalar(0, 0, 255), 5);
+    Imgproc.circle(inputMat, srcPts.get(3), 10, new Scalar(125, 125, 0), 5);
+    // B
+    Imgproc.circle(inputMat, new Point(0, 0), 20, new Scalar(255, 0, 0), 10);
+    Imgproc.circle(inputMat, new Point(cameraImageWidth, 0), 20, new Scalar(0, 255, 0), 10);
+    Imgproc.circle(inputMat, new Point(cameraImageWidth, cameraImageHeight), 20, new Scalar(0, 0, 255), 10);
+    Imgproc.circle(inputMat, new Point(0, cameraImageHeight), 20, new Scalar(125, 125, 0), 10);
+    Utils.matToBitmap(inputMat, cameraBitmap);
+    String markedFileName = "bMarked" + timeStamp + ".jpeg";
+    saveImage(cameraBitmap, markedFileName);
+
     //getting the output matrix with the previously determined sizes
-    Mat outputMat = new Mat(256, 256, CvType.CV_32F);
+    Mat outputMat = new Mat(256, 256, CvType.CV_32S);
 
     //applying the transformation
     Imgproc.warpPerspective(inputMat, outputMat, perspectiveTransform, new Size(256, 256));
+
     //creating the output bitmap
     Bitmap outputBitmap = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888);
     Utils.matToBitmap(outputMat, outputBitmap);
 
-    saveImage(outputBitmap);
+    String finalFileName = "final_" + timeStamp + ".jpeg";
+    saveImage(outputBitmap, finalFileName);
   }
 
-  private Bitmap getFrameBitmap(Frame frame) {
+  private Image getARCoreImage(Frame frame) {
     Image cameraImage = null;
     try {
       cameraImage = frame.acquireCameraImage();
@@ -188,26 +228,38 @@ public class AugmentedImageActivity extends AppCompatActivity {
       Log.e(LOG_TAG, "Failed to acquire camera image: " + e.getMessage());
       return null;
     }
-
-    // The camera image received is in YUV YCbCr Format. Get buffers for each of the planes and use them to create a new bytearray defined by the size of all three buffers combined
-    ByteBuffer cameraPlaneY = cameraImage.getPlanes()[0].getBuffer();
-    ByteBuffer cameraPlaneU = cameraImage.getPlanes()[1].getBuffer();
-    ByteBuffer cameraPlaneV = cameraImage.getPlanes()[2].getBuffer();
-
-    // Use the buffers to create a new byteArray that
-    byte[] compositeByteArray = new byte[cameraPlaneY.capacity() + cameraPlaneU.capacity() + cameraPlaneV.capacity()];
-
-    cameraPlaneY.get(compositeByteArray, 0, cameraPlaneY.capacity());
-    cameraPlaneU.get(compositeByteArray, cameraPlaneY.capacity(), cameraPlaneU.capacity());
-    cameraPlaneV.get(compositeByteArray, cameraPlaneY.capacity() + cameraPlaneU.capacity(), cameraPlaneV.capacity());
-
-    ByteArrayOutputStream baOutputStream = new ByteArrayOutputStream();
-    YuvImage yuvImage = new YuvImage(compositeByteArray, ImageFormat.NV21, cameraImage.getWidth(), cameraImage.getHeight(), null);
-    yuvImage.compressToJpeg(new Rect(0, 0, cameraImage.getWidth(), cameraImage.getHeight()), 100, baOutputStream);
-
-    byte[] byteForBitmap = baOutputStream.toByteArray();
-    return BitmapFactory.decodeByteArray(byteForBitmap, 0, byteForBitmap.length);
+    return cameraImage;
   }
+
+//  private Bitmap getFrameBitmap(Frame frame) {
+//    Image cameraImage = null;
+//    try {
+//      cameraImage = frame.acquireCameraImage();
+//    } catch (NotYetAvailableException e) {
+//      e.printStackTrace();
+//      Log.e(LOG_TAG, "Failed to acquire camera image: " + e.getMessage());
+//      return null;
+//    }
+//
+//    // The camera image received is in YUV YCbCr Format. Get buffers for each of the planes and use them to create a new bytearray defined by the size of all three buffers combined
+//    ByteBuffer cameraPlaneY = cameraImage.getPlanes()[0].getBuffer();
+//    ByteBuffer cameraPlaneU = cameraImage.getPlanes()[1].getBuffer();
+//    ByteBuffer cameraPlaneV = cameraImage.getPlanes()[2].getBuffer();
+//
+//    // Use the buffers to create a new byteArray that
+//    byte[] compositeByteArray = new byte[cameraPlaneY.capacity() + cameraPlaneU.capacity() + cameraPlaneV.capacity()];
+//
+//    cameraPlaneY.get(compositeByteArray, 0, cameraPlaneY.capacity());
+//    cameraPlaneU.get(compositeByteArray, cameraPlaneY.capacity(), cameraPlaneU.capacity());
+//    cameraPlaneV.get(compositeByteArray, cameraPlaneY.capacity() + cameraPlaneU.capacity(), cameraPlaneV.capacity());
+//
+//    ByteArrayOutputStream baOutputStream = new ByteArrayOutputStream();
+//    YuvImage yuvImage = new YuvImage(compositeByteArray, ImageFormat.NV21, cameraImage.getWidth(), cameraImage.getHeight(), null);
+//    yuvImage.compressToJpeg(new Rect(0, 0, cameraImage.getWidth(), cameraImage.getHeight()), 100, baOutputStream);
+//
+//    byte[] byteForBitmap = baOutputStream.toByteArray();
+//    return BitmapFactory.decodeByteArray(byteForBitmap, 0, byteForBitmap.length);
+//  }
 
   @Override
   protected void onResume() {
@@ -317,9 +369,9 @@ public class AugmentedImageActivity extends AppCompatActivity {
     return nodes;
   }
 
-  private void createPhotoOutputFolder() {
+  private static void createPhotoOutputFolder() {
     try {
-      File file = generateSaveFile();
+      File file = generateSaveFile("foo");
       File folder = file.getParentFile();
       if (!folder.exists()) {
         if (!folder.mkdirs()) {
@@ -332,14 +384,29 @@ public class AugmentedImageActivity extends AppCompatActivity {
     }
   }
 
-  private File generateSaveFile() {
-    String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-    String fileName = "/saved_images/photo_" + timeStamp + ".jpeg";
-    return new File(Environment.getExternalStorageDirectory(), fileName);
+  private static File generateSaveFile(String fileName) {
+    return new File(Environment.getExternalStorageDirectory(), "/saved_images/" + fileName);
   }
 
-  private void saveImage(Bitmap bitmap) {
-    File file = generateSaveFile();
+  private static void saveImage(byte[] data, String fileName) {
+    File file = generateSaveFile(fileName);
+    if (file.exists()) {
+      file.delete();
+    }
+
+    try {
+      FileOutputStream out = new FileOutputStream(file);
+      out.write(data);
+      out.flush();
+      out.close();
+    } catch (IOException e) {
+      Log.e(LOG_TAG, "Failed to save image: " + e.getMessage());
+      e.printStackTrace();
+    }
+  }
+
+  private static void saveImage(Bitmap bitmap, String fileName) {
+    File file = generateSaveFile(fileName);
     if (file.exists()) {
       file.delete();
     }
@@ -355,10 +422,45 @@ public class AugmentedImageActivity extends AppCompatActivity {
     }
   }
 
-  private Vector3 fromArray(float[] array) {
+  private static Vector3 fromArray(float[] array) {
     float x = array.length > 0 ? array[0] : 0f;
     float y = array.length > 1 ? array[1] : 0f;
     float z = array.length > 2 ? array[2] : 0f;
     return new Vector3(x, y, z);
   }
+
+  private static byte[] convertYUV420888toNV21(Image image) {
+    byte[] nv21;
+    ByteBuffer yBuffer = image.getPlanes()[0].getBuffer();
+    ByteBuffer uBuffer = image.getPlanes()[1].getBuffer();
+    ByteBuffer vBuffer = image.getPlanes()[2].getBuffer();
+
+    int ySize = yBuffer.remaining();
+    int uSize = uBuffer.remaining();
+    int vSize = vBuffer.remaining();
+
+    nv21 = new byte[ySize + uSize + vSize];
+
+    //U and V are swapped
+    yBuffer.get(nv21, 0, ySize);
+    vBuffer.get(nv21, ySize, vSize);
+    uBuffer.get(nv21, ySize + vSize, uSize);
+
+    return nv21;
+  }
+
+  private static byte[] convertNV21toJPEG(byte[] nv21, int width, int height) {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    YuvImage yuv = new YuvImage(nv21, ImageFormat.NV21, width, height, null);
+    yuv.compressToJpeg(new Rect(0, 0, width, height), 100, out);
+    return out.toByteArray();
+  }
+
+  private static byte[] extractImageDataFromARCore(Image image) {
+    byte[] nv21 = convertYUV420888toNV21(image);
+    byte[] data = convertNV21toJPEG(nv21, image.getWidth(), image.getHeight());
+    return data;
+
+  }
+
 }
